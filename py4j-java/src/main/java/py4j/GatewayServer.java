@@ -423,7 +423,7 @@ public class GatewayServer extends DefaultGatewayServerListener implements Py4JJ
 		this.address = address;
 		this.connectTimeout = connectTimeout;
 		this.readTimeout = readTimeout;
-		this.gateway = new Gateway(entryPoint, cbClient);
+		this.gateway = new Gateway(port, address, entryPoint, cbClient);
 		this.pythonPort = cbClient.getPort();
 		this.pythonAddress = cbClient.getAddress();
 		this.gateway.putObject(GATEWAY_SERVER_ID, this);

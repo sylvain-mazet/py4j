@@ -34,6 +34,7 @@ import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -63,6 +64,10 @@ import py4j.reflection.ReflectionEngine;
  */
 public class Gateway {
 
+	public static final String DEFAULT_ADDRESS = "127.0.0.1";
+
+	public static final int DEFAULT_PORT = 25333;
+
 	private final Map<String, Object> bindings = new ConcurrentHashMap<String, Object>();
 	private final AtomicInteger objCounter = new AtomicInteger();
 	private final AtomicInteger argCounter = new AtomicInteger();
@@ -76,14 +81,28 @@ public class Gateway {
 
 	private boolean isStarted = false;
 
+	// address/port of the java server
+	private InetAddress address;
+	private int port;
+
 	public Gateway(Object entryPoint) {
-		this(entryPoint, null);
+		this(DEFAULT_PORT,defaultAddress(),entryPoint, null);
 	}
 
-	public Gateway(Object entryPoint, Py4JPythonClient cbClient) {
+	public Gateway(int port, InetAddress address, Object entryPoint, Py4JPythonClient cbClient) {
 		this.entryPoint = entryPoint;
 		this.cbClient = cbClient;
 		this.defaultJVMView = new JVMView("default", Protocol.DEFAULT_JVM_OBJECT_ID);
+		this.address = address;
+		this.port = port;
+	}
+
+	private static InetAddress defaultAddress() {
+		try {
+			return InetAddress.getByName(DEFAULT_ADDRESS);
+		} catch (UnknownHostException e) {
+			throw new Py4JNetworkException(e);
+		}
 	}
 
 	/**
@@ -407,4 +426,11 @@ public class Gateway {
 		bindings.put(Protocol.DEFAULT_JVM_OBJECT_ID, defaultJVMView);
 	}
 
+	public InetAddress getAddress() {
+		return address;
+	}
+
+	public int getPort() {
+		return port;
+	}
 }

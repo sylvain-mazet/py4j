@@ -2348,6 +2348,14 @@ class CallbackConnection(Thread):
                         command, self.input, self.socket, token)
                     continue
 
+                if command == '':
+                    break
+
+                java_address = smart_decode(self.input.readline())[:-1]
+                java_port = int(smart_decode(self.input.readline())[:-1])
+                self.gateway_client.gateway_parameters.address = java_address
+                self.gateway_client.gateway_parameters.port = java_port
+
                 obj_id = smart_decode(self.input.readline())[:-1]
                 logger.info(
                     "Received command {0} on object id {1}".
