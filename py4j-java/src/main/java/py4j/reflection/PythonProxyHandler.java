@@ -89,8 +89,6 @@ public class PythonProxyHandler implements InvocationHandler {
 		logger.fine("Method " + method.getName() + " called on Python object " + id);
 		StringBuilder sBuilder = new StringBuilder();
 		sBuilder.append(CALL_PROXY_COMMAND_NAME);
-		sBuilder.append(gateway.getAddress().getHostAddress());
-		sBuilder.append("\n");
 		sBuilder.append(gateway.getPort());
 		sBuilder.append("\n");
 		sBuilder.append(id);

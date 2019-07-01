@@ -53,5 +53,5 @@ setup(
         "Programming Language :: Java",
         "Topic :: Software Development :: Libraries",
         "Topic :: Software Development :: Object Brokering",
-    ],
+    ], install_requires=['termcolor']
 )

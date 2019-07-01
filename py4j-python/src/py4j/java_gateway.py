@@ -2351,7 +2351,7 @@ class CallbackConnection(Thread):
                 if command == '':
                     break
 
-                java_address = smart_decode(self.input.readline())[:-1]
+                java_address = self.socket.getpeername()[0]
                 java_port = int(smart_decode(self.input.readline())[:-1])
                 self.gateway_client.gateway_parameters.address = java_address
                 self.gateway_client.gateway_parameters.port = java_port
