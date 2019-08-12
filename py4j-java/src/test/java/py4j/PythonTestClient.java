@@ -29,15 +29,17 @@
  *****************************************************************************/
 package py4j;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 
 public class PythonTestClient implements Runnable {
+
+	Logger logger = LoggerFactory.getLogger(PythonTestClient.class);
 
 	public volatile String lastProxyMessage;
 	public volatile String lastReturnMessage;
@@ -49,10 +51,23 @@ public class PythonTestClient implements Runnable {
 		new Thread(this).start();
 	}
 
+	@Override
 	public void run() {
 		try {
-			sSocket = new ServerSocket(25334);
-			Socket socket = sSocket.accept();
+			/* do not use default ports for testing */
+			try {
+				sSocket = new ServerSocket(25344);
+			} catch (IOException e) {
+				logger.error("[proxy] Could not start : "+e.getMessage());
+				return;
+			}
+			Socket socket;
+			try {
+				socket = sSocket.accept();
+			} catch(IOException e) {
+				logger.error("[proxy] "+e.getMessage());
+				return;
+			}
 			BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 			BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
 			lastProxyMessage = "";
@@ -62,6 +77,8 @@ public class PythonTestClient implements Runnable {
 				temp = reader.readLine() + "\n";
 				lastProxyMessage += temp;
 			}
+			logger.info("[proxy] Receiving : "+lastProxyMessage);
+			logger.info("[proxy] Returning : "+nextProxyReturnMessage);
 			writer.write(nextProxyReturnMessage);
 			writer.flush();
 			writer.close();
@@ -78,12 +95,14 @@ public class PythonTestClient implements Runnable {
 
 	public void sendMesage(String message) {
 		try {
-			Socket socket = new Socket(InetAddress.getByName(GatewayServer.DEFAULT_ADDRESS), 25333);
+			Socket socket = new Socket(InetAddress.getByName(GatewayServer.DEFAULT_ADDRESS), 25343);
 			BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 			BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+			logger.info("[client] sending "+message);
 			writer.write(message);
 			writer.flush();
 			lastReturnMessage = reader.readLine();
+			logger.info("[client] received "+lastReturnMessage);
 			writer.close();
 			reader.close();
 			socket.close();

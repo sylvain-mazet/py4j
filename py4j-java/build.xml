@@ -32,7 +32,7 @@
     <property environment="env"/>
 	<property file="ant.properties"/>
     <property name="debuglevel" value="source,lines,vars"/>
-	<property name="jar.name" value="py4j${version}.jar"/>
+	<property name="jar.name" value="py4j-${version}.jar"/>
     <property name="release.name" value="py4j-${version}"/>
     <property name="junit.src.tests" value="src/test/java"/>
 

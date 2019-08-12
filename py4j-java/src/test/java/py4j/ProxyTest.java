@@ -31,26 +31,56 @@ package py4j;
 
 import static org.junit.Assert.*;
 
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.LogManager;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ProxyTest {
+
+	static Logger logger = LoggerFactory.getLogger(ProxyTest.class);
 
 	private GatewayServer gServer;
 	private PythonTestClient pClient;
 	private InterfaceEntry entry;
 
+	@BeforeClass
+	public static void preLoad() {
+
+		try {
+			FileInputStream conf = new FileInputStream(ClassLoader.getSystemResource("logging.properties").getPath());
+			LogManager.getLogManager().readConfiguration(conf);
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e){
+			e.printStackTrace();
+		}
+
+	}
+
 	@Before
 	public void setup() {
-		// GatewayServer.turnLoggingOn();
+
+		GatewayServer.turnLoggingOn();
 		entry = new InterfaceEntry();
-		gServer = new GatewayServer(entry);
+		gServer = new GatewayServer(entry,25343);
 		pClient = new PythonTestClient();
 		gServer.start();
+		try {
+			Thread.sleep(250);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 		pClient.startProxy();
 		try {
 			Thread.sleep(250);
@@ -73,9 +103,15 @@ public class ProxyTest {
 
 	@Test
 	public void testSayHello() {
+
 		String message = "c\nt\nsayHello\nfp123;py4j.IHello\ne\n";
 		pClient.nextProxyReturnMessage = "ysHello\\nWorld";
 		pClient.sendMesage(message);
+
+		logger.info("[client] last proxy message : "+pClient.lastProxyMessage);
+		logger.info("[client] last return message : "+pClient.lastReturnMessage);
+		logger.info("[client] simpleHello: "+entry.simpleHello);
+
 		assertEquals("c\np123\nhello\ne\n", pClient.lastProxyMessage);
 		assertEquals("!ysHello\\nWorld", pClient.lastReturnMessage);
 		assertEquals("Hello\nWorld", entry.simpleHello);
@@ -86,7 +122,7 @@ public class ProxyTest {
 		String message = "c\nt\nsayHelloParams\nfp123;py4j.IHello\ne\n";
 		pClient.nextProxyReturnMessage = "ysHello\\nWorld";
 		pClient.sendMesage(message);
-		assertEquals("c\np123\nhello2\nsTesting\\nWild\ni3\nlo0\ne\n", pClient.lastProxyMessage);
+		assertEquals("c\n25343\np123\nhello2\nsTesting\\nWild\ni3\nlo0\ne\n", pClient.lastProxyMessage);
 		assertEquals("!ysHello\\nWorld", pClient.lastReturnMessage);
 		assertEquals("Hello\nWorld", entry.simpleHello2);
 	}

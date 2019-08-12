@@ -1,8 +1,8 @@
 apply plugin: 'java'
-apply plugin: 'eclipse'
 apply plugin: 'idea'
 apply plugin: 'jacoco'
 apply plugin: 'maven'
+apply plugin: 'maven-publish'
 
 
 // ====== CONFIGURATION ===== //
@@ -22,17 +22,17 @@ ext {
 
 
 // Only add spotless for JDK >= 1.8
-if (JavaVersion.current().isJava8Compatible()) {
+/*if (JavaVersion.current().isJava8Compatible()) {
     apply plugin: 'com.diffplug.gradle.spotless'
     apply plugin: 'org.standardout.bnd-platform'
-}
+}*/
 
 // FindBugs require JDK >= 1.7
-if (JavaVersion.current().isJava7Compatible()) {
+/*if (JavaVersion.current().isJava7Compatible()) {
     apply plugin: 'findbugs'
-}
+}*/
 
-if (JavaVersion.current().isJava8Compatible()) {
+/*if (JavaVersion.current().isJava8Compatible()) {
     platform {
         fetchSources = true
 
@@ -76,7 +76,7 @@ if (JavaVersion.current().isJava8Compatible()) {
             }
         }
     }
-}
+}*/
 
 buildscript {
     repositories {
@@ -96,15 +96,20 @@ repositories {
 }
 
 dependencies {
+    compile("ch.qos.logback:logback-classic:1.2.3")
+    compile("org.slf4j:jcl-over-slf4j:1.7.13")
+    compile("org.slf4j:jul-to-slf4j:1.7.13")
+    compile("org.slf4j:log4j-over-slf4j:1.7.13")
+
     testCompile group: 'junit', name: 'junit', version: '4.12'
     // For Java 8 Support
-    if (JavaVersion.current().isJava7Compatible()) {
+    /*if (JavaVersion.current().isJava7Compatible()) {
         findbugs group: 'com.google.code.findbugs', name: 'findbugs', version: '3.0.+'
-    }
+    }*/
 }
 
 // Only add spotless for JDK >= 1.8
-if (JavaVersion.current().isJava8Compatible()) {
+/*if (JavaVersion.current().isJava8Compatible()) {
     spotless {
         java {
             licenseHeaderFile 'py4j.license.java'
@@ -112,7 +117,7 @@ if (JavaVersion.current().isJava8Compatible()) {
             importOrderFile 'py4j.importorder'
         }
     }
-}
+}*/
 
 // Use environment variable only if the property is not set
 if (jdk6BootClasspathEnv && !jdk6BootClasspath) {
@@ -148,6 +153,8 @@ jacocoTestReport {
 // ====== CUSTOM TASKS ====== //
 
 // Maven support
+/*
+ the maven-plugin takes care of that
 task createPom {
     description 'Creates Py4J maven build file.'
     doLast {
@@ -200,6 +207,7 @@ task createPom {
         }.writeTo("pom.xml")
     }
 }
+*/
 
 // If someone wants to access all examples
 task testsJar(type: Jar) {
@@ -243,7 +251,7 @@ task copyMainJar(type: Exec, dependsOn: jar) {
         commandLine 'cp', '-f' 
         ext.baseLibPath = 'build/libs/'
     }
-    args "${baseLibPath}py4j-java-${version}.jar", "py4j${version}.jar"
+    args "${baseLibPath}py4j-java-${version}.jar", "py4j-${version}.jar"
 }
 
 // Make Py4J.org website and doc
@@ -271,7 +279,7 @@ task copyWebJavadocPython(type: Copy, dependsOn: ['javadoc', 'copyWebPython']) {
 }
 
 // Copy Java build to Python build for Python Source Build
-task copyJavaPython(type: Copy, dependsOn: ['copyMainJar', 'javadoc', 'createPom']) {
+task copyJavaPython(type: Copy, dependsOn: ['copyMainJar', 'javadoc']) {
     description 'Copies py4j-java source and build files to py4j-python directory.'
     from(projectDir) {
         include "src"
@@ -282,7 +290,7 @@ task copyJavaPython(type: Copy, dependsOn: ['copyMainJar', 'javadoc', 'createPom
         include "pom.xml"
         include "LICENSE.txt"
     }
-    from "py4j${version}.jar"
+    from "py4j-${version}.jar"
     from "${buildDir}/docs"
     into pythonJavaDir
 }
@@ -290,17 +298,16 @@ task copyJavaPython(type: Copy, dependsOn: ['copyMainJar', 'javadoc', 'createPom
 // Python Source Dist
 task buildPythonSrc(type: Exec, dependsOn: ['copyWebJavadocPython', 'copyJavaPython']) {
     description 'Builds python source distribution.'
-    workingDir pythonDir;
-    executable 'python'
+    workingDir   pythonDir
+    executable  'python'
     args 'setup.py', 'sdist', '--formats=zip,gztar'
 }
 
 // Python Wheel Dist
 task buildPythonWheel(type: Exec, dependsOn: ['copyJavaPython']) {
     description 'Builds python wheel (binary) distribution.'
-    workingDir pythonDir;
-    executable 'python'
-    args 'setup.py', 'bdist_wheel'
+    workingDir "$projectDir/$pythonDir"
+    commandLine 'python', 'setup.py', 'bdist_wheel'
 }
 
 // Python Global Dist
@@ -311,7 +318,7 @@ task buildPython(dependsOn: ['buildPythonSrc', 'buildPythonWheel']) {
 
 // Clean Py4J backward compatibility jar
 task cleanMainJar(type: Delete) {
-    delete "./py4j${version}.jar"
+    delete "./py4j-${version}.jar"
 }
 
 // Clean web dist
@@ -346,9 +353,9 @@ task cleanPython(type: Delete) {
 
 // For now, tests are not clean and that's fine because we want to test many
 // unclean scenarios.
-if (JavaVersion.current().isJava7Compatible()) {
+/*if (JavaVersion.current().isJava7Compatible()) {
     findbugsTest.enabled = false
-}
+}*/
 
 // Build all jars
 artifacts {
@@ -362,11 +369,11 @@ assemble {
     dependsOn copyMainJar
 }
 
-if (JavaVersion.current().isJava8Compatible()) {
+/*if (JavaVersion.current().isJava8Compatible()) {
     bundles {
         dependsOn assemble
     }
-}
+}*/
 
 clean {
     dependsOn cleanMainJar
@@ -375,3 +382,56 @@ clean {
     dependsOn cleanPythonJava
     dependsOn cleanPythonWeb
 }
+
+publishing {
+    publications {
+        Py4J(MavenPublication) {
+            pom {
+                name = 'Py4J'
+                description 'Py4J enables Python programs running in a Python interpreter to dynamically access Java objects in a Java Virtual Machine. Methods are called as if the Java objects resided in the Python interpreter and Java collections can be accessed through standard Python collection methods. Py4J also enables Java programs to call back Python objects.'
+                url = 'http://www.py4j.org'
+                properties = [
+                        'project.build.sourceEncoding': 'UTF-8',
+                        'project.build.outputEncoding': 'UTF-8'
+                ]
+                licenses {
+                    license {
+                        name = 'The New BSD License'
+                        url = 'http://www.opensource.org/licenses/bsd-license.html'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'bartdag'
+                        name = 'Barthelemy Dagenais'
+                        url = 'http://infobart.com/'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git@github.com:bartdag/py4j.git'
+                    developerConnection = 'scm:git:git@github.com:bartdag/py4j.git'
+                    url = 'git@github.com:bartdag/py4j.git'
+                }
+            }
+            from components.java
+            artifactId 'py4j'
+            artifact sourcesJar
+            artifact javadocJar
+        }
+    }
+
+    repositories {
+        maven {
+            credentials {
+                username 'admin'
+                password 'softbridge2015'
+            }
+            if(project.version.toString().endsWith('-SNAPSHOT')) {
+                url "http://hudson:8081/artifactory/libs-snapshot-local"
+            } else {
+                url "http://hudson:8081/artifactory/libs-release-local"
+            }
+        }
+    }
+}
+

@@ -12,7 +12,7 @@ exec(compile(open(VERSION_PATH).read(),
      VERSION_PATH, "exec"))
 VERSION = __version__  # noqa
 RELEASE = "py4j-" + VERSION
-JAR_FILE = "py4j" + VERSION + ".jar"
+JAR_FILE = "py4j-" + VERSION + ".jar"
 # Note: please do "./gradlew buildPython" before doing setup.py sdist.
 # Otherwise the jar files won't be created
 JAR_FILE_PATH = os.path.join("py4j-java", JAR_FILE)

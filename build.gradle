@@ -1,0 +1,9 @@
+repositories {
+    //jcenter()
+
+    mavenLocal()
+
+    maven { 'url' 'http://hudson:8081/artifactory/repo'}
+
+}
+
