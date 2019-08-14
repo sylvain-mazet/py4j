@@ -14,7 +14,7 @@ exec(compile(open(VERSION_PATH).read(),
      VERSION_PATH, "exec"))
 VERSION = __version__  # noqa
 RELEASE = "py4j-" + VERSION
-JAR_FILE = "py4j" + VERSION + ".jar"
+JAR_FILE = "py4j-" + VERSION + ".jar"
 
 os.chdir("py4j-java")
 if os.name == "nt":
