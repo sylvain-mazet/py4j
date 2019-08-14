@@ -21,7 +21,8 @@ setup(
     name="py4j",
     packages=["py4j", "py4j.tests"],
     package_dir={"": "src"},
-    data_files=[("share/py4j", [JAR_FILE_PATH])],
+    # I do not want the jar file, it is not there when building docker image
+    # data_files=[("share/py4j", [JAR_FILE_PATH])],
     version=VERSION,
     description="Enables Python programs to dynamically access arbitrary "
                 "Java objects",
