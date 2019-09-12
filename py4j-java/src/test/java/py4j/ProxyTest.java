@@ -34,6 +34,8 @@ import static org.junit.Assert.*;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
@@ -54,6 +56,8 @@ public class ProxyTest {
 	private PythonTestClient pClient;
 	private InterfaceEntry entry;
 
+	static int pythonPort = 25334;
+
 	@BeforeClass
 	public static void preLoad() {
 
@@ -68,13 +72,29 @@ public class ProxyTest {
 
 	}
 
+	private static InetAddress getInetAddress(String address) {
+		InetAddress inetAddress = null;
+		try {
+			inetAddress = InetAddress.getByName(address);
+		} catch (UnknownHostException e) {
+			logger.error("Could not find address at "+address);
+			e.printStackTrace();
+			return null;
+		}
+		return inetAddress;
+	}
+
 	@Before
 	public void setup() {
 
 		GatewayServer.turnLoggingOn();
 		entry = new InterfaceEntry();
-		gServer = new GatewayServer(entry,25343);
-		pClient = new PythonTestClient();
+		gServer = new GatewayServer(entry,
+				25333);/*,getInetAddress("127.0.0.1"),
+				0,0,null,
+				new CallbackClient(pythonPort, getInetAddress("127.0.0.1")));*/
+
+		pClient = new PythonTestClient(pythonPort);
 		gServer.start();
 		try {
 			Thread.sleep(250);
@@ -104,7 +124,7 @@ public class ProxyTest {
 	@Test
 	public void testSayHello() {
 
-		String message = "c\nt\nsayHello\nfp123;py4j.IHello\ne\n";
+		String message = "c\n"+pythonPort+"t\nsayHello\nfp123;py4j.IHello\ne\n";
 		pClient.nextProxyReturnMessage = "ysHello\\nWorld";
 		pClient.sendMesage(message);
 

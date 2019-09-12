@@ -47,6 +47,12 @@ public class PythonTestClient implements Runnable {
 
 	private ServerSocket sSocket;
 
+	private final int pythonPort;
+
+	public PythonTestClient(int pythonPort) {
+		this.pythonPort = pythonPort;
+	}
+
 	public void startProxy() {
 		new Thread(this).start();
 	}
@@ -56,7 +62,7 @@ public class PythonTestClient implements Runnable {
 		try {
 			/* do not use default ports for testing */
 			try {
-				sSocket = new ServerSocket(25344);
+				sSocket = new ServerSocket(pythonPort);
 			} catch (IOException e) {
 				logger.error("[proxy] Could not start : "+e.getMessage());
 				return;
@@ -95,7 +101,7 @@ public class PythonTestClient implements Runnable {
 
 	public void sendMesage(String message) {
 		try {
-			Socket socket = new Socket(InetAddress.getByName(GatewayServer.DEFAULT_ADDRESS), 25343);
+			Socket socket = new Socket(InetAddress.getByName(GatewayServer.DEFAULT_ADDRESS), pythonPort);
 			BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 			BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
 			logger.info("[client] sending "+message);
@@ -103,6 +109,12 @@ public class PythonTestClient implements Runnable {
 			writer.flush();
 			lastReturnMessage = reader.readLine();
 			logger.info("[client] received "+lastReturnMessage);
+
+			try {
+				Thread.sleep(250);
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
 			writer.close();
 			reader.close();
 			socket.close();

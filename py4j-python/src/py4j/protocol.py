@@ -149,6 +149,7 @@ OUTPUT_VOID_COMMAND = RETURN_MESSAGE + SUCCESS + VOID_TYPE + "\n"
 AUTH_COMMAND_NAME = "A"
 CALL_PROXY_COMMAND_NAME = "c"
 GARBAGE_COLLECT_PROXY_COMMAND_NAME = "g"
+SERVER_STATUS_COMMAND_NAME = "s"
 
 # Dir subcommands
 DIR_FIELDS_SUBCOMMAND_NAME = "f\n"
@@ -332,7 +333,7 @@ def get_return_value(answer, gateway_client, target_id=None, name=None):
                     format(target_id, ".", name, value))
         else:
             raise Py4JError(
-                "An error occurred while calling {0}{1}{2}".
+                "An empty answer occurred while calling {0}{1}{2}".
                 format(target_id, ".", name))
     else:
         type = answer[1]

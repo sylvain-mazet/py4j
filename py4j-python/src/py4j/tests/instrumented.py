@@ -47,13 +47,14 @@ class InstrJavaGateway(JavaGateway):
             callback_server_parameters=callback_server_parameters)
         return callback_server
 
-    def _create_gateway_property(self):
+    @classmethod
+    def create_gateway_property(cls, gateway_parameters, python_server_entry_point=None):
         gateway_property = InstrGatewayProperty(
-            self.gateway_parameters.auto_field, PythonProxyPool(),
-            self.gateway_parameters.enable_memory_management)
-        if self.python_server_entry_point:
+            gateway_parameters.auto_field, PythonProxyPool(),
+            gateway_parameters.enable_memory_management)
+        if python_server_entry_point:
             gateway_property.pool.put(
-                self.python_server_entry_point, proto.ENTRY_POINT_OBJECT_ID)
+                python_server_entry_point, proto.ENTRY_POINT_OBJECT_ID)
         return gateway_property
 
 
@@ -156,7 +157,8 @@ class InstrClientServer(ClientServer):
             self.gateway_property)
         return callback_server
 
-    def _create_gateway_property(self):
+    # TODO may be update this with new structure
+    def create_gateway_property(self):
         gateway_property = InstrGatewayProperty(
             self.java_parameters.auto_field, PythonProxyPool(),
             self.java_parameters.enable_memory_management)

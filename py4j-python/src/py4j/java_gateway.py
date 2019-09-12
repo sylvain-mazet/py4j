@@ -25,6 +25,7 @@ import sys
 import traceback
 from threading import Thread, RLock
 import weakref
+import json
 
 from py4j.compat import (
     range, hasattr2, basestring, CompatThread, Queue)
@@ -979,6 +980,7 @@ class GatewayClient(object):
            be useful if the lifecycle of the Java program must be tied to
            the Python program.
         """
+        logger.info("Shutdown gateway at "+str(self.address)+":"+str(self.port))
         connection = self._get_connection()
         try:
             connection.shutdown_gateway()
@@ -1057,6 +1059,133 @@ class GatewayClient(object):
             except IndexError:
                 pass
 
+    def build_info(self):
+        gw_info = dict()
+        gw_info['object'] = str(self)
+        gw_info['nConnections'] = len(self.deque)
+        gw_info['readTimeout'] = self.gateway_parameters.read_timeout
+        connections = []
+        for connection in list(self.deque):
+            connection_info = dict()
+            connection_info['socket'] = id(connection.socket)
+            connection_info['isConnected'] = connection.is_connected
+            connections.append(connection_info)
+        gw_info['connections'] = connections
+        return gw_info
+
+    @classmethod
+    def build_new_session(cls, address, port, gateway_client, pool):
+        """ Build a new session, using the parameters of the given gateway_client.
+        We also copy objects from the given pool."""
+        # I update the callback client now
+        # I create a new one
+        auto_field = gateway_client.gateway_parameters.auto_field
+        auto_close = gateway_client.gateway_parameters.auto_close
+        auto_convert = gateway_client.gateway_parameters.auto_convert
+        eager_load = gateway_client.gateway_parameters.eager_load
+        ssl_context = gateway_client.gateway_parameters.ssl_context
+        enable_memory_management = gateway_client.gateway_parameters.enable_memory_management
+        read_timeout = gateway_client.gateway_parameters.read_timeout
+        auth_token = gateway_client.gateway_parameters.auth_token
+        gateway_parameters = GatewayParameters(
+            address=address, port=port,
+            auto_field=auto_field, auto_close=auto_close,
+            auto_convert=auto_convert, eager_load=eager_load,
+            ssl_context=ssl_context, enable_memory_management=enable_memory_management,
+            read_timeout=read_timeout, auth_token=auth_token)
+        # I build a new pool, with the entry point and a new jvm
+        gateway_property = JavaGateway.create_gateway_property(
+            gateway_parameters,
+            python_server_entry_point=None)
+        # take the entry point from the callback server pool
+        gateway_property.pool.put(pool[proto.ENTRY_POINT_OBJECT_ID], proto.ENTRY_POINT_OBJECT_ID)
+        # and this is our new pool
+        new_pool = gateway_property.pool
+        # ok create new client, with the input converters
+        new_gateway_client = JavaGateway.create_gateway_client(gateway_parameters,
+                                                               gateway_property=gateway_property)
+        JavaGateway.setup_gateway_client(new_gateway_client)
+        # add the jvm to the gateway_client
+        jvm = JavaGateway.make_new_jvm_view(new_gateway_client,
+                                            name="JVM:"+str(address)+":"+str(port),
+                                            id=proto.DEFAULT_JVM_ID)
+        return GatewaySession(new_gateway_client, new_pool, jvm)
+
+
+class GatewaySession(object):
+    def __init__(self, gw_client, pool, jvm):
+        self.gateway_client = gw_client
+        self.pool = pool
+        self.jvm = jvm
+
+    def address(self):
+        return self.gateway_client.address
+
+    def port(self):
+        return self.gateway_client.port
+
+    def build_info(self):
+        return {
+            'address': self.gateway_client.address,
+            'port': self.gateway_client.port,
+            'gatewayClient': str(self.gateway_client),
+            'pool': str(self.pool),
+            'jvm': str(self.jvm)
+        }
+
+
+class GatewaySessionPool(object):
+    """ A pool of active sessions, one per remote machine:port
+    I think GatewayClient should be named GatewaySession """
+    def __init__(self):
+        self.lock = RLock()
+        self.sessions = dict()
+
+    def put(self, gateway_session):
+        id = self.compute_id(gateway_session)
+        with self.lock:
+            if id in self.sessions.keys():
+                if not self.sessions[id] is gateway_session:
+                    self.sessions[id].close()
+                    self.sessions[id] = gateway_session
+            else:
+                self.sessions[id] = gateway_session
+
+    @classmethod
+    def compute_id(cls, gateway_session):
+        return cls.id_for(gateway_session.address(), gateway_session.port())
+
+    @classmethod
+    def id_for(cls, address, port):
+        return str(address)+":"+str(port)
+
+    def keys(self):
+        with self.lock:
+            return self.sessions.keys()
+
+    def __getitem__(self, key):
+        with self.lock:
+            return self.sessions[key]
+
+    def __delitem__(self, key):
+        with self.lock:
+            del(self.sessions[key])
+
+    def __contains__(self, id):
+        return id in self.sessions
+
+    def __len__(self):
+        with self.lock:
+            return len(self.sessions)
+
+    def build_info(self):
+        info = dict()
+        info['nSessions'] = len(self.sessions)
+        info['sessions'] = []
+        for _id, session in self.sessions.items():
+            info['sessions'].append(session.build_info())
+        return info
+
 
 class GatewayConnection(object):
     """Default gateway connection (socket based) responsible for communicating
@@ -1104,6 +1233,7 @@ class GatewayConnection(object):
         except Exception as e:
             msg = "An error occurred while trying to connect to the Java "\
                 "server ({0}:{1})".format(self.address, self.port)
+            logger.info(msg)
             logger.exception(msg)
             raise Py4JNetworkError(msg, e)
 
@@ -1738,6 +1868,9 @@ class JavaGateway(object):
             Java is driving the communication.
         """
 
+        # a pool of sessions
+        self.sessions_pool = GatewaySessionPool()
+
         self.gateway_parameters = gateway_parameters
         if not gateway_parameters:
             self.gateway_parameters = GatewayParameters(
@@ -1773,11 +1906,13 @@ class JavaGateway(object):
             deprecated("JavaGateway.gateway_client", "1.0",
                        "GatewayParameters")
         else:
-            gateway_client = self._create_gateway_client()
+            gateway_client = JavaGateway.create_gateway_client(self.gateway_parameters)
 
         self.python_server_entry_point = python_server_entry_point
         self._python_proxy_port = python_proxy_port
-        self.gateway_property = self._create_gateway_property()
+        self.gateway_property = JavaGateway.create_gateway_property(
+            gateway_parameters,
+            python_server_entry_point=self.python_server_entry_point)
 
         # Setup gateway client
         self.set_gateway_client(gateway_client)
@@ -1790,18 +1925,21 @@ class JavaGateway(object):
         if self.callback_server_parameters.eager_load:
             self.start_callback_server(self.callback_server_parameters)
 
-    def _create_gateway_client(self):
+    @classmethod
+    def create_gateway_client(cls, gateway_parameters, gateway_property=None):
         gateway_client = GatewayClient(
-            gateway_parameters=self.gateway_parameters)
+            gateway_parameters=gateway_parameters,
+            gateway_property=gateway_property)
         return gateway_client
 
-    def _create_gateway_property(self):
+    @classmethod
+    def create_gateway_property(cls, gateway_parameters, python_server_entry_point=None):
         gateway_property = GatewayProperty(
-            self.gateway_parameters.auto_field, PythonProxyPool(),
-            self.gateway_parameters.enable_memory_management)
-        if self.python_server_entry_point:
+            gateway_parameters.auto_field, PythonProxyPool(),
+            gateway_parameters.enable_memory_management)
+        if python_server_entry_point:
             gateway_property.pool.put(
-                self.python_server_entry_point, proto.ENTRY_POINT_OBJECT_ID)
+                python_server_entry_point, proto.ENTRY_POINT_OBJECT_ID)
         return gateway_property
 
     def set_gateway_client(self, gateway_client):
@@ -1811,12 +1949,8 @@ class JavaGateway(object):
         This is for advanced usage only. And should only be set before the
         gateway is loaded.
         """
-        if self.gateway_parameters.auto_convert:
-            gateway_client.converters = proto.INPUT_CONVERTER
-        else:
-            gateway_client.converters = None
         gateway_client.gateway_property = self.gateway_property
-        self._gateway_client = gateway_client
+        self._gateway_client = JavaGateway.setup_gateway_client(gateway_client)
 
         self.entry_point = JavaObject(
             proto.ENTRY_POINT_OBJECT_ID, self._gateway_client)
@@ -1827,6 +1961,17 @@ class JavaGateway(object):
         self.jvm = JVMView(
             self._gateway_client, jvm_name=proto.DEFAULT_JVM_NAME,
             id=proto.DEFAULT_JVM_ID)
+
+        self.sessions_pool.put(GatewaySession(gateway_client, self.gateway_property.pool, self.jvm))
+
+    @classmethod
+    def setup_gateway_client(cls, gateway_client):
+        if gateway_client.gateway_parameters.auto_convert:
+            gateway_client.converters = proto.INPUT_CONVERTER
+        else:
+            gateway_client.converters = None
+
+        return gateway_client
 
     def __getattr__(self, name):
         return self.entry_point.__getattr__(name)
@@ -1874,7 +2019,8 @@ class JavaGateway(object):
     def _create_callback_server(self, callback_server_parameters):
         callback_server = CallbackServer(
             self.gateway_property.pool, self._gateway_client,
-            callback_server_parameters=callback_server_parameters)
+            callback_server_parameters=callback_server_parameters,
+            sessions_pool=self.sessions_pool)
         return callback_server
 
     def new_jvm_view(self, name="custom jvm"):
@@ -1891,17 +2037,21 @@ class JavaGateway(object):
 
         :rtype: A JVMView instance (same class as the gateway.jvm instance).
         """
-        command = proto.JVMVIEW_COMMAND_NAME +\
-            proto.JVM_CREATE_VIEW_SUB_COMMAND_NAME +\
-            get_command_part(name) +\
-            proto.END_COMMAND_PART
+        return JavaGateway.make_new_jvm_view(self._gateway_client,name)
 
-        answer = self._gateway_client.send_command(command)
-        java_object = get_return_value(answer, self._gateway_client)
+    @classmethod
+    def make_new_jvm_view(cls,gateway_client,name="custom jvm",id=None):
+        command = proto.JVMVIEW_COMMAND_NAME + \
+                  proto.JVM_CREATE_VIEW_SUB_COMMAND_NAME + \
+                  get_command_part(name) + \
+                  proto.END_COMMAND_PART
+        logger.info("Creating new JVM for "+str(gateway_client.address)+":"+str(gateway_client.port))
+        answer = gateway_client.send_command(command)
+        java_object = get_return_value(answer, gateway_client)
 
         return JVMView(
-            gateway_client=self._gateway_client, jvm_name=name,
-            jvm_object=java_object)
+            gateway_client=gateway_client, jvm_name=name,
+            jvm_object=java_object,id=id)
 
     def new_array(self, java_class, *dimensions):
         """Creates a Java array of type `java_class` of `dimensions`
@@ -2131,7 +2281,8 @@ class CallbackServer(object):
 
     def __init__(
             self, pool, gateway_client, port=DEFAULT_PYTHON_PROXY_PORT,
-            address=DEFAULT_ADDRESS, callback_server_parameters=None):
+            address=DEFAULT_ADDRESS, callback_server_parameters=None,
+            sessions_pool=None):
         """
         :param pool: the pool responsible of tracking Python objects passed to
             the Java side.
@@ -2144,6 +2295,7 @@ class CallbackServer(object):
 
         """
         self.gateway_client = gateway_client
+        self.sessions_pool = sessions_pool
 
         self.callback_server_parameters = callback_server_parameters
         if not callback_server_parameters:
@@ -2240,8 +2392,10 @@ class CallbackServer(object):
                         socket_instance = self.ssl_context.wrap_socket(
                             socket_instance, server_side=True)
                     input = socket_instance.makefile("rb")
-                    connection = self._create_connection(
-                        socket_instance, input)
+                    connection = CallbackServer._create_connection(
+                        socket_instance, input, self.pool,
+                        self.gateway_client,self.callback_server_parameters,
+                        self)
                     with self.lock:
                         if not self.is_shutdown:
                             self.connections.add(connection)
@@ -2261,10 +2415,12 @@ class CallbackServer(object):
 
         server_stopped.send(self, server=self)
 
-    def _create_connection(self, socket_instance, stream):
+    @classmethod
+    def _create_connection(cls, socket_instance, stream, pool, gateway_client,
+                           callback_server_parameters, callback_server):
         connection = CallbackConnection(
-            self.pool, stream, socket_instance, self.gateway_client,
-            self.callback_server_parameters, self)
+            pool, stream, socket_instance, gateway_client,
+            callback_server_parameters, callback_server)
         return connection
 
     def close(self):
@@ -2353,8 +2509,33 @@ class CallbackConnection(Thread):
 
                 java_address = self.socket.getpeername()[0]
                 java_port = int(smart_decode(self.input.readline())[:-1])
-                self.gateway_client.gateway_parameters.address = java_address
-                self.gateway_client.gateway_parameters.port = java_port
+
+                if (self.gateway_client.address != java_address or
+                        self.gateway_client.port != java_port):
+
+                    # try to get a gateway client from pool
+                    try:
+                        _id = GatewaySessionPool.id_for(java_address, java_port)
+                        if _id in self.callback_server.sessions_pool.keys():
+                            session = self.callback_server.sessions_pool[_id]
+                            logger.info("Reusing session : "+_id)
+                            self.gateway_client = session.gateway_client
+                            self.pool = session.pool
+                            self.jvm = session.jvm
+                        else:
+                            logger.info("Creating a new connection session from "+str(java_address)+":"+str(java_port))
+                            session = GatewayClient.build_new_session(java_address,
+                                                                      java_port,
+                                                                      self.gateway_client,
+                                                                      self.callback_server.pool)
+                            self.callback_server.sessions_pool.put(session)
+                            self.gateway_client = session.gateway_client
+                            self.pool = session.pool
+                            self.jvm = session.jvm
+                    except Exception as e:
+                        logger.error("Error while setting up session: ")
+                        logger.exception(e)
+                        raise e
 
                 obj_id = smart_decode(self.input.readline())[:-1]
                 logger.info(
@@ -2367,12 +2548,19 @@ class CallbackConnection(Thread):
                     self.socket.sendall(return_message.encode("utf-8"))
                 elif command == proto.GARBAGE_COLLECT_PROXY_COMMAND_NAME:
                     self.input.readline()
+                    logger.info("Garbage collecting on %s" % str(obj_id))
                     _garbage_collect_proxy(self.pool, obj_id)
                     self.socket.sendall(
                         proto.SUCCESS_RETURN_MESSAGE.encode("utf-8"))
+                elif command.strip('\r') == proto.SERVER_STATUS_COMMAND_NAME:
+                    info = self.build_info()
+                    self.socket.sendall(
+                        get_command_part(json.dumps(info))[1:].encode("utf-8")
+                    )
+                    reset = True
                 else:
                     logger.error("Unknown command {0}".format(command))
-                    # We're sending something to prevent blokincg, but at this
+                    # We're sending something to prevent blocking, but at this
                     # point, the protocol is broken.
                     self.socket.sendall(
                         proto.ERROR_RETURN_MESSAGE.encode("utf-8"))
@@ -2392,7 +2580,7 @@ class CallbackConnection(Thread):
         self.close(reset)
 
     def close(self, reset=False):
-        logger.info("Closing down callback connection")
+        logger.info("Closing down callback connection to %s" % str(self.socket.getpeername()))
         if reset:
             set_linger(self.socket)
         else:
@@ -2439,6 +2627,37 @@ class CallbackConnection(Thread):
             temp = smart_decode(input.readline())[:-1]
         return params
 
+    def build_info(self):
+        info = {}
+        connections_shadow = []
+        connections_active = []
+        for connection in self.callback_server.connections:
+            connection_description = dict()
+            connection_description['id'] = str(connection)
+            connection_description['gatewayClient'] = connection.gateway_client.build_info()
+            connection_description['address'] = connection.gateway_client.address
+            connection_description['port'] = connection.gateway_client.port
+            connection_description['nObjects'] = len(connection.pool)
+            connection_description['isAlive'] = connection.isAlive()
+            connection_description['pool'] = str(connection.pool)
+            connection_description['objects'] = connection.pool.build_objects_info()
+            if connection.isAlive():
+                connections_active.append(connection_description)
+            else:
+                connections_shadow.append(connection_description)
+        info['nConnections'] = len(self.callback_server.connections)
+        info['nActiveConnections'] = len(connections_active)
+        info['nShadowConnections'] = len(connections_shadow)
+        info['activeConnections'] = connections_active
+        #info['shadowConnections'] = connections_shadow
+        info_server = dict()
+        info_server['gatewayClient'] = self.gateway_client.build_info()
+        info_server['nObjects'] = len(self.pool)
+        info_server['objects'] = self.pool.build_objects_info()
+        info_server['pool'] = str(self.pool)
+        info_server['sessions_pool'] = self.callback_server.sessions_pool.build_info()
+        info['server'] = info_server
+        return info
 
 class PythonProxyPool(object):
     """A `PythonProxyPool` manages proxies that are passed to the Java side.
@@ -2493,6 +2712,12 @@ class PythonProxyPool(object):
     def __len__(self):
         with self.lock:
             return len(self.dict)
+
+    def build_objects_info(self):
+        dict_objects = []
+        for key in self.dict.keys():
+            dict_objects.append({'id': key, 'obj': str(self.dict[key])})
+        return dict_objects
 
 # Basic registration
 register_output_converter(
