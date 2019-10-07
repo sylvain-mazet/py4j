@@ -2497,6 +2497,15 @@ class CallbackConnection(Thread):
         try:
             while True:
                 command = smart_decode(self.input.readline())[:-1]
+
+                if command.strip('\r') == proto.SERVER_STATUS_COMMAND_NAME:
+                    info = self.build_info()
+                    self.socket.sendall(
+                        get_command_part(json.dumps(info))[1:].encode("utf-8")
+                    )
+                    reset = True
+                    continue
+
                 if not authenticated:
                     token = self.callback_server_parameters.auth_token
                     # Will raise an exception if auth fails in any way.
@@ -2552,12 +2561,6 @@ class CallbackConnection(Thread):
                     _garbage_collect_proxy(self.pool, obj_id)
                     self.socket.sendall(
                         proto.SUCCESS_RETURN_MESSAGE.encode("utf-8"))
-                elif command.strip('\r') == proto.SERVER_STATUS_COMMAND_NAME:
-                    info = self.build_info()
-                    self.socket.sendall(
-                        get_command_part(json.dumps(info))[1:].encode("utf-8")
-                    )
-                    reset = True
                 else:
                     logger.error("Unknown command {0}".format(command))
                     # We're sending something to prevent blocking, but at this
@@ -2631,9 +2634,19 @@ class CallbackConnection(Thread):
         info = {}
         connections_shadow = []
         connections_active = []
+
+        threads = sys._current_frames()
+
         for connection in self.callback_server.connections:
             connection_description = dict()
             connection_description['id'] = str(connection)
+            connection_description['thread_name'] = connection.name
+            connection_description['thread_id'] = connection.ident
+            stack = traceback.extract_stack(threads.get(connection.ident))
+            for frame in stack:
+                logger.info("  DIR FRAME %s ",dir(frame))
+                frame
+            connection_description['thread_stack'] = traceback.format_list(stack)
             connection_description['gatewayClient'] = connection.gateway_client.build_info()
             connection_description['address'] = connection.gateway_client.address
             connection_description['port'] = connection.gateway_client.port
