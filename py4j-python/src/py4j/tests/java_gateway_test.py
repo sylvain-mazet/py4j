@@ -193,11 +193,12 @@ class TestConnection(object):
 
     counter = -1
 
-    def __init__(self, return_message="yro"):
+    def __init__(self, return_message="yro", gateway_parameters=None):
         self.address = "127.0.0.1"
         self.port = 1234
         self.return_message = return_message
         self.is_connected = True
+        self.gateway_parameters = gateway_parameters
 
     def start(self):
         pass
@@ -224,10 +225,10 @@ class ProtocolTest(unittest.TestCase):
             escape_new_line("Hello\t\rWorld\n\\")))
 
     def testProtocolSend(self):
-        testConnection = TestConnection()
         self.gateway = JavaGateway()
 
         # Replace gateway client by test connection
+        testConnection = TestConnection(gateway_parameters=self.gateway.gateway_parameters)
         self.gateway.set_gateway_client(testConnection)
 
         e = self.gateway.getExample()

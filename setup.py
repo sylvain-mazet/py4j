@@ -20,7 +20,7 @@ os.chdir("py4j-java")
 if os.name == "nt":
     subprocess.call("./gradlew.bat buildPython", shell=True)
 else:
-    subprocess.call("./gradlew buildPython", shell=True)
+    subprocess.call("./gradlew buildPython -x test", shell=True)
 os.chdir("..")
 
 #JAR_FILE_PATH = os.path.join("py4j-python", "py4j-java", JAR_FILE)

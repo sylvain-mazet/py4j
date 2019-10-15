@@ -150,6 +150,7 @@ AUTH_COMMAND_NAME = "A"
 CALL_PROXY_COMMAND_NAME = "c"
 GARBAGE_COLLECT_PROXY_COMMAND_NAME = "g"
 SERVER_STATUS_COMMAND_NAME = "s"
+KILL_THREAD_COMMAND_NAME = "k"
 
 # Dir subcommands
 DIR_FIELDS_SUBCOMMAND_NAME = "f\n"
@@ -443,6 +444,14 @@ class Py4JNetworkError(Py4JError):
     """Exception raised when a network error occurs with Py4J."""
     def __init__(self, args=None, cause=None, when=None):
         super(Py4JNetworkError, self).__init__(args)
+        self.cause = cause
+        self.when = when
+
+
+class Py4JThreadCancelledError(Py4JError):
+    """Exception raised when a thread is cancelled within Py4J."""
+    def __init__(self, args=None, cause=None, when=None):
+        super(Py4JThreadCancelledError, self).__init__(args)
         self.cause = cause
         self.when = when
 

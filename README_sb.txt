@@ -12,6 +12,17 @@ $ ./gradlew buildPython -x py4j-java:test
  * builds python wheel in py4j-python/dist
    this wheel contains also the java jar (named py4j<version>.jar) and the javadoc
 
+It is also possible to build with python (at top level):
+$ python setup.py build
+But in order to publish, go through gradle:
+$  ./gradlew publishPy4JPublicationToMavenRepository
+
+In the python environement, reinstall the python library locally like so (at top level):
+$ pip uninstall -y py4j && ./gradlew buildPython && pip install .
+
+
+
+
 Note: When using anaconda environment for python, in Intellij:
  - install the python plugin in IDEA
  - setup the python interpreter using the python exec in the conda environment (full path),

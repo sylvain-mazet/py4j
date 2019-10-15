@@ -23,6 +23,7 @@ from subprocess import Popen, PIPE
 import subprocess
 import sys
 import traceback
+import ctypes
 from threading import Thread, RLock
 import weakref
 import json
@@ -32,7 +33,7 @@ from py4j.compat import (
 from py4j.finalizer import ThreadSafeFinalizer
 from py4j import protocol as proto
 from py4j.protocol import (
-    Py4JError, Py4JJavaError, Py4JNetworkError,
+    Py4JError, Py4JJavaError, Py4JNetworkError, Py4JThreadCancelledError,
     Py4JAuthenticationError,
     get_command_part, get_return_value,
     register_output_converter, smart_decode, escape_new_line,
@@ -192,6 +193,9 @@ def find_jar_path():
     # ant
     paths.append(os.path.join(os.path.dirname(
         os.path.realpath(__file__)), "../../../py4j-java/" + jar_file))
+    # with gradle 5, and renaming the jar to the standard "py4j-__version__.jar"
+    paths.append(os.path.join(os.path.dirname(
+        os.path.realpath(__file__)), "../../../py4j-java/" + maven_jar_file))
     # maven
     paths.append(os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
@@ -210,7 +214,6 @@ def find_jar_path():
     #   the jar file is here: virtualenvpath/share/py4j/py4j.jar
     paths.append(os.path.join(os.path.dirname(
             os.path.realpath(__file__)), "../../../../share/py4j/" + jar_file))
-
     for path in paths:
         if os.path.exists(path):
             return path
@@ -1124,6 +1127,9 @@ class GatewaySession(object):
     def port(self):
         return self.gateway_client.port
 
+    def close(self):
+        self.gateway_client.close()
+
     def build_info(self):
         return {
             'address': self.gateway_client.address,
@@ -1911,7 +1917,7 @@ class JavaGateway(object):
         self.python_server_entry_point = python_server_entry_point
         self._python_proxy_port = python_proxy_port
         self.gateway_property = JavaGateway.create_gateway_property(
-            gateway_parameters,
+            self.gateway_parameters,
             python_server_entry_point=self.python_server_entry_point)
 
         # Setup gateway client
@@ -2490,13 +2496,31 @@ class CallbackConnection(Thread):
 
         self.daemon = self.callback_server_parameters.daemonize_connections
 
+    def end(self):
+        ret = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(self.ident),
+                                                         ctypes.py_object(Py4JThreadCancelledError))
+        if ret == 0:
+            raise ValueError("Invalid thread ID {}".format(self.ident))
+        elif ret > 1:
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(self.ident), None)
+            raise SystemError("PyThreadState_SetAsyncExc failed")
+
     def run(self):
-        logger.info("Callback Connection ready to receive messages")
+        logger.info("Callback Connection ready to receive messages, thread %d" % self.ident)
         reset = False
         authenticated = self.callback_server_parameters.auth_token is None
         try:
             while True:
                 command = smart_decode(self.input.readline())[:-1]
+
+                if not authenticated:
+                    token = self.callback_server_parameters.auth_token
+                    # Will raise an exception if auth fails in any way.
+                    authenticated = do_client_auth(
+                        command, self.input, self.socket, token)
+                    continue
+
+                self.socket.sendall(("%d\n" % self.ident).encode("utf-8"))  # send thread ident
 
                 if command.strip('\r') == proto.SERVER_STATUS_COMMAND_NAME:
                     info = self.build_info()
@@ -2506,11 +2530,21 @@ class CallbackConnection(Thread):
                     reset = True
                     continue
 
-                if not authenticated:
-                    token = self.callback_server_parameters.auth_token
-                    # Will raise an exception if auth fails in any way.
-                    authenticated = do_client_auth(
-                        command, self.input, self.socket, token)
+                if command.strip('\r') == proto.KILL_THREAD_COMMAND_NAME:
+                    # retrieve the target thread ident
+                    target_ident = int(smart_decode(self.input.readline())[:-1])
+                    resp = proto.ERROR_RETURN_MESSAGE
+                    # retrieve the target thread from the callback server connections
+                    for connection in self.callback_server.connections:
+                        if connection.ident == target_ident:
+                            # and kill it if not dead
+                            logger.info("Cancelling %d" % connection.ident)
+                            connection.end()
+                            resp = proto.SUCCESS_RETURN_MESSAGE
+
+                    # reply
+                    self.socket.sendall(resp.encode("utf-8"))
+                    reset = True
                     continue
 
                 if command == '':
@@ -2575,6 +2609,9 @@ class CallbackConnection(Thread):
             logger.info(
                 "Timeout while callback connection was waiting for"
                 "a message", exc_info=True)
+        except Py4JThreadCancelledError as e:
+            reset = True
+            logger.info("Request %d has been cancelled" % self.ident)
         except Exception:
             # This is a normal exception...
             logger.info(
@@ -2583,7 +2620,10 @@ class CallbackConnection(Thread):
         self.close(reset)
 
     def close(self, reset=False):
-        logger.info("Closing down callback connection to %s" % str(self.socket.getpeername()))
+        try:
+            logger.info("Closing down callback connection to %s" % str(self.socket.getpeername()))
+        except Exception:
+            logger.info("Closing down (dead?) connection")
         if reset:
             set_linger(self.socket)
         else:
@@ -2643,9 +2683,6 @@ class CallbackConnection(Thread):
             connection_description['thread_name'] = connection.name
             connection_description['thread_id'] = connection.ident
             stack = traceback.extract_stack(threads.get(connection.ident))
-            for frame in stack:
-                logger.info("  DIR FRAME %s ",dir(frame))
-                frame
             connection_description['thread_stack'] = traceback.format_list(stack)
             connection_description['gatewayClient'] = connection.gateway_client.build_info()
             connection_description['address'] = connection.gateway_client.address
@@ -2671,6 +2708,7 @@ class CallbackConnection(Thread):
         info_server['sessions_pool'] = self.callback_server.sessions_pool.build_info()
         info['server'] = info_server
         return info
+
 
 class PythonProxyPool(object):
     """A `PythonProxyPool` manages proxies that are passed to the Java side.
@@ -2731,6 +2769,7 @@ class PythonProxyPool(object):
         for key in self.dict.keys():
             dict_objects.append({'id': key, 'obj': str(self.dict[key])})
         return dict_objects
+
 
 # Basic registration
 register_output_converter(

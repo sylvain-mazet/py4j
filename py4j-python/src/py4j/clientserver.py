@@ -647,6 +647,7 @@ class ClientServer(JavaGateway):
         worker.start()
         return worker_deque
 
+    # TODO this is broken, it is not anymore an override of JavaGateway's
     def _create_gateway_client(self):
         worker_deque = self._create_finalizer_worker()
         java_client = JavaClient(

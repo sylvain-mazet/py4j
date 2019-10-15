@@ -76,6 +76,8 @@ public class CallbackConnection implements Py4JClientConnection {
 
 	private final String authToken;
 
+	private Long pythonThreadIdent = null;
+
 	public CallbackConnection(int port, InetAddress address) {
 		this(port, address, SocketFactory.getDefault());
 	}
@@ -142,6 +144,17 @@ public class CallbackConnection implements Py4JClientConnection {
 			throw new Py4JNetworkException("Error while sending a command: null response: " + command, e,
 					Py4JNetworkException.ErrorTime.ERROR_ON_SEND);
 		}
+
+		try {
+			String connectionThreadIdentString = this.readBlockingResponse(this.reader);
+			this.pythonThreadIdent = Long.parseLong(connectionThreadIdentString);
+		} catch (IOException e) {
+			throw new Py4JNetworkException("Could not retrieve request identifier");
+		} catch (NumberFormatException e) {
+			throw new Py4JNetworkException("Could not read request identifier: "+e.getMessage());
+		}
+
+		logger.log(Level.INFO,"Connection has thread identifier: "+this.pythonThreadIdent.toString());
 
 		try {
 			if (blocking) {
