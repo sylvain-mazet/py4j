@@ -1136,6 +1136,7 @@ class GatewaySession(object):
             'port': self.gateway_client.port,
             'gatewayClient': str(self.gateway_client),
             'pool': str(self.pool),
+            'objects': self.pool.build_objects_info(),
             'jvm': str(self.jvm)
         }
 
