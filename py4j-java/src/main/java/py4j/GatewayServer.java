@@ -250,7 +250,8 @@ public class GatewayServer extends DefaultGatewayServerListener implements Py4JJ
 	public GatewayServer(Object entryPoint, int port, int pythonPort, InetAddress address, InetAddress pythonAddress,
 			int connectTimeout, int readTimeout, List<Class<? extends Command>> customCommands) {
 		this(entryPoint, port, address, connectTimeout, readTimeout, customCommands,
-				new CallbackClient(pythonPort, pythonAddress), ServerSocketFactory.getDefault());
+				new CallbackClient(pythonPort, pythonAddress), ServerSocketFactory.getDefault(),
+				Gateway.DEFAULT_GRACE_DELAY, Gateway.DEFAULT_GC_PERIOD);
 	}
 
 	/**
@@ -324,7 +325,8 @@ public class GatewayServer extends DefaultGatewayServerListener implements Py4JJ
 	public GatewayServer(Object entryPoint, int port, int pythonPort, int connectTimeout, int readTimeout,
 			List<Class<? extends Command>> customCommands) {
 		this(entryPoint, port, defaultAddress(), connectTimeout, readTimeout, customCommands,
-				new CallbackClient(pythonPort, defaultAddress()), ServerSocketFactory.getDefault());
+				new CallbackClient(pythonPort, defaultAddress()), ServerSocketFactory.getDefault(),
+				Gateway.DEFAULT_GRACE_DELAY, Gateway.DEFAULT_GC_PERIOD);
 	}
 
 	/**
@@ -352,7 +354,7 @@ public class GatewayServer extends DefaultGatewayServerListener implements Py4JJ
 	public GatewayServer(Object entryPoint, int port, int connectTimeout, int readTimeout,
 			List<Class<? extends Command>> customCommands, Py4JPythonClient cbClient) {
 		this(entryPoint, port, defaultAddress(), connectTimeout, readTimeout, customCommands, cbClient,
-				ServerSocketFactory.getDefault());
+				ServerSocketFactory.getDefault(), Gateway.DEFAULT_GRACE_DELAY,Gateway.DEFAULT_GC_PERIOD);
 	}
 
 	/**
@@ -380,9 +382,44 @@ public class GatewayServer extends DefaultGatewayServerListener implements Py4JJ
 	 * 			  An instance of a callback client.
 	 */
 	public GatewayServer(Object entryPoint, int port, InetAddress address, int connectTimeout, int readTimeout,
-			List<Class<? extends Command>> customCommands, Py4JPythonClient cbClient) {
+						 List<Class<? extends Command>> customCommands, Py4JPythonClient cbClient) {
 		this(entryPoint, port, address, connectTimeout, readTimeout, customCommands, cbClient,
-				ServerSocketFactory.getDefault());
+				ServerSocketFactory.getDefault(), Gateway.DEFAULT_GRACE_DELAY, Gateway.DEFAULT_GC_PERIOD);
+	}
+
+	/**
+	 *
+	 * @param entryPoint
+	 *            The entry point of this Gateway. Can be null.
+	 * @param port
+	 *            The port the GatewayServer is listening to.
+	 * @param address
+	 *            The address the GatewayServer is listening to.
+	 * @param connectTimeout
+	 *            Time in milliseconds (0 = infinite). If a GatewayServer does
+	 *            not receive a connection request after this time, it closes
+	 *            the server socket and no other connection is accepted.
+	 * @param readTimeout
+	 *            Time in milliseconds (0 = infinite). Once a Python program is
+	 *            connected, if a GatewayServer does not receive a request
+	 *            (e.g., a method call) after this time, the connection with the
+	 *            Python program is closed.
+	 * @param customCommands
+	 *            A list of custom Command classes to augment the Server
+	 *            features. These commands will be accessible from Python
+	 *            programs. Can be null.
+	 * @param cbClient
+	 * 			  An instance of a callback client.
+	 * @param graceDelay
+	 *            Delay (millis) after which we collect inactive bindings
+	 * @param gcPeriod
+	 *            Period in millis for launching our gc (to clean up unused bindings)
+	 */
+	public GatewayServer(Object entryPoint, int port, InetAddress address, int connectTimeout, int readTimeout,
+			List<Class<? extends Command>> customCommands, Py4JPythonClient cbClient,
+			Long graceDelay, Long gcPeriod) {
+		this(entryPoint, port, address, connectTimeout, readTimeout, customCommands, cbClient,
+				ServerSocketFactory.getDefault(), graceDelay, gcPeriod);
 	}
 
 	/**
@@ -411,19 +448,26 @@ public class GatewayServer extends DefaultGatewayServerListener implements Py4JJ
 	 */
 	public GatewayServer(Object entryPoint, int port, InetAddress address, int connectTimeout, int readTimeout,
 			List<Class<? extends Command>> customCommands, Py4JPythonClient cbClient,
-			ServerSocketFactory sSocketFactory) {
-		this(entryPoint, port, address, connectTimeout, readTimeout, customCommands, cbClient, sSocketFactory, null);
+			ServerSocketFactory sSocketFactory, Long graceDelay, Long gcPeriod) {
+		this(entryPoint, port, address, connectTimeout, readTimeout, customCommands, cbClient, sSocketFactory, null,
+				graceDelay, gcPeriod);
 	}
 
 	GatewayServer(Object entryPoint, int port, InetAddress address, int connectTimeout, int readTimeout,
+				  List<Class<? extends Command>> customCommands, Py4JPythonClient cbClient,
+				  ServerSocketFactory sSocketFactory, String authToken) {
+		this(entryPoint, port, address, connectTimeout, readTimeout, customCommands, cbClient,
+				sSocketFactory, authToken, Gateway.DEFAULT_GRACE_DELAY, Gateway.DEFAULT_GC_PERIOD);
+	}
+	GatewayServer(Object entryPoint, int port, InetAddress address, int connectTimeout, int readTimeout,
 			List<Class<? extends Command>> customCommands, Py4JPythonClient cbClient,
-			ServerSocketFactory sSocketFactory, String authToken) {
+			ServerSocketFactory sSocketFactory, String authToken, Long graceDelay, Long gcPeriod) {
 		super();
 		this.port = port;
 		this.address = address;
 		this.connectTimeout = connectTimeout;
 		this.readTimeout = readTimeout;
-		this.gateway = new Gateway(port, address, entryPoint, cbClient);
+		this.gateway = new Gateway(port, address, entryPoint, cbClient, graceDelay, gcPeriod);
 		this.pythonPort = cbClient.getPort();
 		this.pythonAddress = cbClient.getAddress();
 		this.gateway.putObject(GATEWAY_SERVER_ID, this);
@@ -932,7 +976,7 @@ public class GatewayServer extends DefaultGatewayServerListener implements Py4JJ
 					callbackClient = new CallbackClient(GatewayServer.DEFAULT_PYTHON_PORT);
 				}
 				return new GatewayServer(entryPoint, javaPort, javaAddress, connectTimeout, readTimeout, customCommands,
-						callbackClient, serverSocketFactory, authToken);
+						callbackClient, serverSocketFactory, authToken, Gateway.DEFAULT_GRACE_DELAY, Gateway.DEFAULT_GC_PERIOD);
 			} else {
 				return new GatewayServer(gateway, javaPort, javaAddress, connectTimeout, readTimeout, customCommands,
 						serverSocketFactory, authToken);

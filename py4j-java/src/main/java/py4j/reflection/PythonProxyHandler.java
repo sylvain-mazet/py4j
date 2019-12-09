@@ -38,6 +38,7 @@ import java.util.logging.Logger;
 import py4j.Gateway;
 import py4j.Protocol;
 import py4j.Py4JException;
+import py4j.ReturnObject;
 
 /**
  * <p>
@@ -96,16 +97,27 @@ public class PythonProxyHandler implements InvocationHandler {
 		sBuilder.append(method.getName());
 		sBuilder.append("\n");
 
+		List<ReturnObject> py4jArgObjects = new ArrayList<ReturnObject>();
 		if (args != null) {
 			for (Object arg : args) {
-				sBuilder.append(gateway.getReturnObject(arg).getCommandPart());
+				ReturnObject returnObject = gateway.getReturnObject(arg);
+				py4jArgObjects.add(returnObject);
+				sBuilder.append(returnObject.getCommandPart());
 				sBuilder.append("\n");
 			}
 		}
 
 		sBuilder.append("e\n");
 
-		String returnCommand = gateway.getCallbackClient().sendCommand(sBuilder.toString());
+		String returnCommand;
+		try {
+			returnCommand = gateway.getCallbackClient().sendCommand(sBuilder.toString());
+		} catch (Py4JException e) {
+		    for (ReturnObject o : py4jArgObjects) {
+		    	gateway.deleteObject(o.getName());
+			}
+			throw e;
+		}
 
 		Object output = Protocol.getReturnValue(returnCommand, gateway);
 		Object convertedOutput = convertOutput(method, output);

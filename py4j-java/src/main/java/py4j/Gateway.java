@@ -35,12 +35,11 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
@@ -67,8 +66,10 @@ public class Gateway {
 	public static final String DEFAULT_ADDRESS = "127.0.0.1";
 
 	public static final int DEFAULT_PORT = 25333;
+	public static final Long DEFAULT_GRACE_DELAY = 5*60*1000L;
+	public static final Long DEFAULT_GC_PERIOD = 5*60*1000L;
 
-	private final Map<String, Object> bindings = new ConcurrentHashMap<String, Object>();
+	private final Map<String, BoundObject> bindings = new ConcurrentHashMap<String, BoundObject>();
 	private final AtomicInteger objCounter = new AtomicInteger();
 	private final AtomicInteger argCounter = new AtomicInteger();
 	private final static String OBJECT_NAME_PREFIX = "o";
@@ -84,17 +85,29 @@ public class Gateway {
 	// address/port of the java server
 	private InetAddress address;
 	private int port;
+	private final ScheduledExecutorService threadPool;
+	private final GarbageCollectThread bindingsCollector;
+	private final Long graceDelay;
+	private final Long gcPeriod;
 
 	public Gateway(Object entryPoint) {
-		this(DEFAULT_PORT,defaultAddress(),entryPoint, null);
+		this(DEFAULT_PORT,defaultAddress(),entryPoint, null,
+				DEFAULT_GRACE_DELAY, DEFAULT_GC_PERIOD);
 	}
 
-	public Gateway(int port, InetAddress address, Object entryPoint, Py4JPythonClient cbClient) {
+	public Gateway(int port, InetAddress address, Object entryPoint, Py4JPythonClient cbClient,
+				   Long graceDelay, Long gcPeriod) {
 		this.entryPoint = entryPoint;
 		this.cbClient = cbClient;
 		this.defaultJVMView = new JVMView("default", Protocol.DEFAULT_JVM_OBJECT_ID);
 		this.address = address;
 		this.port = port;
+
+		this.graceDelay = graceDelay;
+		this.gcPeriod = gcPeriod;
+
+		bindingsCollector = new GarbageCollectThread(this.graceDelay);
+		threadPool = Executors.newScheduledThreadPool(1);
 	}
 
 	private static InetAddress defaultAddress() {
@@ -153,7 +166,7 @@ public class Gateway {
 	 * @return The bindings of the Gateway. Should never be called by other
 	 *         classes except subclasses and testing classes.
 	 */
-	public Map<String, Object> getBindings() {
+	public Map<String, BoundObject> getBindings() {
 		return bindings;
 	}
 
@@ -184,7 +197,7 @@ public class Gateway {
 	 *         unknown.
 	 */
 	public Object getObject(String objectId) {
-		return bindings.get(objectId);
+		return bindings.get(objectId).getObject();
 	}
 
 	protected Object getObjectFromId(String targetObjectId) {
@@ -358,12 +371,12 @@ public class Gateway {
 	 */
 	public String putNewObject(Object object) {
 		String id = getNextObjectId();
-		bindings.put(id, object);
+		bindings.put(id, new BoundObject(object));
 		return id;
 	}
 
 	public Object putObject(String id, Object object) {
-		return bindings.put(id, object);
+		return bindings.put(id, new BoundObject(object));
 	}
 
 	public void setStarted(boolean isStarted) {
@@ -416,14 +429,19 @@ public class Gateway {
 		if (cbClient != null && shutdownCallbackClient) {
 			cbClient.shutdown();
 		}
+
+		threadPool.shutdown();
 	}
 
 	public void startup() {
 		isStarted = true;
 		if (entryPoint != null) {
-			bindings.put(Protocol.ENTRY_POINT_OBJECT_ID, entryPoint);
+			bindings.put(Protocol.ENTRY_POINT_OBJECT_ID, new BoundObject(entryPoint));
 		}
-		bindings.put(Protocol.DEFAULT_JVM_OBJECT_ID, defaultJVMView);
+		bindings.put(Protocol.DEFAULT_JVM_OBJECT_ID, new BoundObject(defaultJVMView));
+
+		bindingsCollector.setGateway(this);
+		threadPool.scheduleWithFixedDelay(bindingsCollector,gcPeriod, gcPeriod, TimeUnit.MILLISECONDS);
 	}
 
 	public InetAddress getAddress() {
