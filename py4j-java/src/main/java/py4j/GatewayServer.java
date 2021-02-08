@@ -459,6 +459,14 @@ public class GatewayServer extends DefaultGatewayServerListener implements Py4JJ
 		this(entryPoint, port, address, connectTimeout, readTimeout, customCommands, cbClient,
 				sSocketFactory, authToken, Gateway.DEFAULT_GRACE_DELAY, Gateway.DEFAULT_GC_PERIOD);
 	}
+
+	GatewayServer(Object entryPoint, int port, InetAddress address, int connectTimeout, int readTimeout,
+				  List<Class<? extends Command>> customCommands, Py4JPythonClient cbClient,
+				  ServerSocketFactory sSocketFactory) {
+		this(entryPoint, port, address, connectTimeout, readTimeout, customCommands, cbClient, sSocketFactory, null,
+				Gateway.DEFAULT_GRACE_DELAY, Gateway.DEFAULT_GC_PERIOD);
+	}
+
 	GatewayServer(Object entryPoint, int port, InetAddress address, int connectTimeout, int readTimeout,
 			List<Class<? extends Command>> customCommands, Py4JPythonClient cbClient,
 			ServerSocketFactory sSocketFactory, String authToken, Long graceDelay, Long gcPeriod) {

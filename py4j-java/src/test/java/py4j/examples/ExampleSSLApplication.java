@@ -40,6 +40,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 
 import py4j.CallbackClient;
+import py4j.Gateway;
 import py4j.GatewayServer;
 
 // import java.util.logging.Level;
@@ -82,7 +83,7 @@ public class ExampleSSLApplication {
 				new CallbackClient(GatewayServer.DEFAULT_PYTHON_PORT,
 						InetAddress.getByName(CallbackClient.DEFAULT_ADDRESS),
 						CallbackClient.DEFAULT_MIN_CONNECTION_TIME, TimeUnit.SECONDS, sslContext.getSocketFactory()),
-				sslContext.getServerSocketFactory());
+				sslContext.getServerSocketFactory(), Gateway.DEFAULT_GRACE_DELAY,Gateway.DEFAULT_GC_PERIOD);
 		server.start();
 	}
 

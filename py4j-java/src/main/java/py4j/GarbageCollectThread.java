@@ -27,8 +27,6 @@ class GarbageCollectThread implements Runnable {
     public void run() {
         Date limit = Date.from(Instant.now().minusMillis(graceDelayMillis));
 
-        PY4J_LOGGER.info("Garbage collecting unused java bindings");
-
         try {
             List<String> objectsToRemove = new ArrayList<String>();
             gateway.getBindings().forEach((id, boundObject) -> {
@@ -40,7 +38,6 @@ class GarbageCollectThread implements Runnable {
                 }
             });
             objectsToRemove.forEach(gateway::deleteObject);
-            PY4J_LOGGER.info(String.format("Collected %d objects from py4j", objectsToRemove.size()));
 
         } catch (Exception e) {
             e.printStackTrace();
